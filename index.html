@@ -69,16 +69,26 @@
         <!-- Preset Dropdown -->
         <div class="relative">
           <select id="presetSelect" class="text-xs sm:text-sm bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1.5 pr-7 font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer appearance-none">
-            <option value="standard-fire">👑 王道FIRE（新NISA全力）</option>
-            <option value="side-fire">☕ サイドFIRE（月8万副業）</option>
-            <option value="steady-koumuin">🏛️ 堅実公務員（退職金・年金）</option>
-            <option value="crash-stress-test">⚡ 暴落耐性（リーマン級直撃）</option>
-            <option value="conservative">🛡️ 保守型（現金多め・ゆとり）</option>
+            <optgroup label="プリセット" id="defaultPresetsGroup">
+              <option value="standard-fire">👑 王道FIRE（新NISA全力）</option>
+              <option value="side-fire">☕ サイドFIRE（月8万副業）</option>
+              <option value="steady-koumuin">🏛️ 堅実公務員（退職金・年金）</option>
+              <option value="crash-stress-test">⚡ 暴落耐性（リーマン級直撃）</option>
+              <option value="conservative">🛡️ 保守型（現金多め・ゆとり）</option>
+            </optgroup>
+            <optgroup label="💾 マイプラン（保存済み）" id="userPlansGroup">
+            </optgroup>
           </select>
           <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400">
             <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
           </div>
         </div>
+
+        <!-- Plan Save & Manage Button -->
+        <button id="btnOpenPlanModal" title="パラメータ・プランを保存/管理" class="flex items-center space-x-1 px-2.5 py-1.5 text-xs font-semibold text-brand-700 dark:text-brand-300 bg-brand-50 hover:bg-brand-100 dark:bg-brand-950 dark:hover:bg-brand-900 border border-brand-200 dark:border-brand-800 rounded-lg transition shadow-sm">
+          <i data-lucide="bookmark-plus" class="w-4 h-4"></i>
+          <span class="hidden sm:inline">プラン保存</span>
+        </button>
 
         <!-- Share URL Button -->
         <button id="btnShareUrl" title="設定をURLで共有" class="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-800 transition">
@@ -647,6 +657,62 @@
     </div>
 
   </main>
+
+  <!-- Modal: プラン保存・管理モーダル -->
+  <div id="planManageModal" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg p-5 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+        <div class="flex items-center space-x-2">
+          <div class="p-1.5 rounded-lg bg-brand-50 dark:bg-brand-950 text-brand-600 dark:text-brand-400">
+            <i data-lucide="bookmark-check" class="w-4 h-4"></i>
+          </div>
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">プラン・パラメータの保存と管理</h3>
+        </div>
+        <button id="btnClosePlanModal" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- 新規保存フォーム -->
+      <div class="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700/60 space-y-2">
+        <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">現在のパラメータを名前をつけて保存</label>
+        <div class="flex items-center gap-2">
+          <input type="text" id="inputNewPlanName" placeholder="例: 48歳サイドFIRE・マイホーム購入プラン" class="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500">
+          <button id="btnSaveNewPlan" class="px-3.5 py-1.5 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition shadow-sm flex items-center gap-1 whitespace-nowrap">
+            <i data-lucide="save" class="w-3.5 h-3.5"></i>
+            <span>保存</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 保存済みプラン一覧 -->
+      <div class="space-y-2">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-slate-700 dark:text-slate-300">保存済みプラン一覧</span>
+          <span class="text-[11px] text-slate-400" id="savedPlanCountLabel">0件</span>
+        </div>
+        <div id="savedPlanListContainer" class="max-h-60 overflow-y-auto space-y-2 pr-1">
+          <!-- JSで動的レンダリング -->
+        </div>
+      </div>
+
+      <!-- バックアップ (JSON 入出力) -->
+      <div class="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+        <span class="text-slate-400">ファイルでバックアップ:</span>
+        <div class="flex items-center space-x-2">
+          <button id="btnExportJson" class="px-2.5 py-1 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 transition flex items-center gap-1">
+            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+            <span>JSON出力</span>
+          </button>
+          <button id="btnImportJsonTrigger" class="px-2.5 py-1 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 transition flex items-center gap-1">
+            <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+            <span>JSON復元</span>
+          </button>
+          <input type="file" id="inputJsonFile" accept=".json" class="hidden">
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Modal: ライフイベント追加/編集 -->
   <div id="eventModal" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm hidden flex items-center justify-center p-4">

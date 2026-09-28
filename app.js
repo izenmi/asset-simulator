@@ -190,6 +190,7 @@ const PRESETS = {
 let state = { ...DEFAULT_STATE };
 let chartInstance = null;
 let currentSimulationResult = null;
+let savedPlans = []; // ユーザーが名前を付けて保存したプラン一覧
 
 // ==========================================
 // 1. 税金・年金・計算ロジック
@@ -572,12 +573,21 @@ function initApp() {
 
   const presetSelect = document.getElementById('presetSelect');
   presetSelect.addEventListener('change', (e) => {
-    const p = PRESETS[e.target.value];
-    if (p) {
-      applyPreset(p);
-      showToast(`プリセット「${presetSelect.options[presetSelect.selectedIndex].text}」を適用しました`);
+    const val = e.target.value;
+    if (!val) return;
+    if (val.startsWith('user_plan_')) {
+      const planId = val.replace('user_plan_', '');
+      loadSavedPlan(planId);
+    } else {
+      const p = PRESETS[val];
+      if (p) {
+        applyPreset(p);
+        showToast(`プリセット「${presetSelect.options[presetSelect.selectedIndex].text}」を適用しました`);
+      }
     }
   });
+
+  setupPlanManagementModal();
 
   document.getElementById('btnShareUrl').addEventListener('click', shareUrl);
   document.getElementById('btnExportCsv').addEventListener('click', exportCsv);
@@ -1295,5 +1305,288 @@ function showToast(msg) {
   }, 2500);
 }
 
+// ==========================================
+// 7. プラン・パラメータ保存＆管理システム
+// ==========================================
+
+function loadSavedPlansFromStorage() {
+  try {
+    const raw = localStorage.getItem('assetforge_saved_plans');
+    if (raw) {
+      savedPlans = JSON.parse(raw);
+    }
+  } catch (e) {
+    console.warn('Failed to load saved plans:', e);
+    savedPlans = [];
+  }
+}
+
+function savePlansToStorage() {
+  try {
+    localStorage.setItem('assetforge_saved_plans', JSON.stringify(savedPlans));
+  } catch (e) {
+    console.error('Failed to save plans to storage:', e);
+  }
+}
+
+function setupPlanManagementModal() {
+  loadSavedPlansFromStorage();
+
+  const modal = document.getElementById('planManageModal');
+  const btnOpen = document.getElementById('btnOpenPlanModal');
+  const btnClose = document.getElementById('btnClosePlanModal');
+  const btnSaveNew = document.getElementById('btnSaveNewPlan');
+  const inputNewName = document.getElementById('inputNewPlanName');
+  const btnExportJson = document.getElementById('btnExportJson');
+  const btnImportTrigger = document.getElementById('btnImportJsonTrigger');
+  const inputJsonFile = document.getElementById('inputJsonFile');
+
+  if (btnOpen) {
+    btnOpen.addEventListener('click', () => {
+      renderSavedPlanList();
+      inputNewName.value = '';
+      modal.classList.remove('hidden');
+    });
+  }
+
+  const closeModal = () => modal.classList.add('hidden');
+  if (btnClose) btnClose.addEventListener('click', closeModal);
+
+  if (btnSaveNew) {
+    btnSaveNew.addEventListener('click', () => {
+      const name = inputNewName.value.trim();
+      saveCurrentPlan(name);
+      inputNewName.value = '';
+    });
+
+    inputNewName.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const name = inputNewName.value.trim();
+        saveCurrentPlan(name);
+        inputNewName.value = '';
+      }
+    });
+  }
+
+  // JSON エクスポート
+  if (btnExportJson) {
+    btnExportJson.addEventListener('click', exportPlansJson);
+  }
+
+  // JSON インポート
+  if (btnImportTrigger && inputJsonFile) {
+    btnImportTrigger.addEventListener('click', () => inputJsonFile.click());
+    inputJsonFile.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        importPlansJson(file);
+        inputJsonFile.value = '';
+      }
+    });
+  }
+
+  renderSavedPlanList();
+  updatePresetSelectWithUserPlans();
+}
+
+function saveCurrentPlan(customName) {
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  
+  const planName = customName || `マイプラン (${dateStr})`;
+  const newPlan = {
+    id: 'plan_' + Date.now(),
+    name: planName,
+    updatedAt: dateStr,
+    data: JSON.parse(JSON.stringify(state))
+  };
+
+  savedPlans.unshift(newPlan);
+  savePlansToStorage();
+  renderSavedPlanList();
+  updatePresetSelectWithUserPlans();
+  showToast(`プラン「${planName}」を保存しました！`);
+}
+
+window.loadSavedPlan = function(id) {
+  const plan = savedPlans.find(p => p.id === id);
+  if (!plan) return;
+
+  state = { ...DEFAULT_STATE, ...JSON.parse(JSON.stringify(plan.data)) };
+  syncControlsToState();
+  onStateChange();
+
+  const modal = document.getElementById('planManageModal');
+  if (modal) modal.classList.add('hidden');
+
+  const presetSelect = document.getElementById('presetSelect');
+  if (presetSelect) presetSelect.value = `user_plan_${id}`;
+
+  showToast(`プラン「${plan.name}」を読み込みました`);
+};
+
+window.overwriteSavedPlan = function(id) {
+  const planIndex = savedPlans.findIndex(p => p.id === id);
+  if (planIndex === -1) return;
+
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+  savedPlans[planIndex].data = JSON.parse(JSON.stringify(state));
+  savedPlans[planIndex].updatedAt = dateStr;
+
+  savePlansToStorage();
+  renderSavedPlanList();
+  showToast(`プラン「${savedPlans[planIndex].name}」を現在値で上書き保存しました`);
+};
+
+window.deleteSavedPlan = function(id) {
+  const plan = savedPlans.find(p => p.id === id);
+  const planName = plan ? plan.name : 'プラン';
+
+  if (!confirm(`プラン「${planName}」を削除してもよろしいですか？`)) {
+    return;
+  }
+
+  savedPlans = savedPlans.filter(p => p.id !== id);
+  savePlansToStorage();
+  renderSavedPlanList();
+  updatePresetSelectWithUserPlans();
+  showToast(`プラン「${planName}」を削除しました`);
+};
+
+function renderSavedPlanList() {
+  const container = document.getElementById('savedPlanListContainer');
+  const countLabel = document.getElementById('savedPlanCountLabel');
+  if (!container) return;
+
+  if (countLabel) countLabel.textContent = `${savedPlans.length}件`;
+
+  if (savedPlans.length === 0) {
+    container.innerHTML = `
+      <div class="text-center py-6 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-slate-400 text-xs">
+        <i data-lucide="bookmark" class="w-6 h-6 mx-auto mb-1 opacity-40"></i>
+        <p>保存されたプランはまだありません</p>
+        <p class="text-[10px] mt-0.5">上のフォームから現在のパラメータに名前をつけて保存できます</p>
+      </div>
+    `;
+    if (window.lucide) lucide.createIcons();
+    return;
+  }
+
+  container.innerHTML = savedPlans.map(plan => {
+    const d = plan.data;
+    const summary = `${d.currentAge}歳→${d.retireAge}歳リタイア | 月${d.monthlyInvestment}万積立 | 利回り${d.expectedReturn}% | ${formatMan(d.currentAsset)}`;
+
+    return `
+      <div class="p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xs hover:border-brand-500/50 transition">
+        <div class="flex items-start justify-between gap-2">
+          <div class="flex-1 min-w-0">
+            <h4 class="text-xs font-bold text-slate-900 dark:text-white truncate">${plan.name}</h4>
+            <p class="text-[10px] text-slate-400 mt-0.5">更新: ${plan.updatedAt}</p>
+            <div class="text-[11px] font-medium text-slate-600 dark:text-slate-300 mt-1 truncate">
+              ${summary}
+            </div>
+          </div>
+          <div class="flex items-center space-x-1 shrink-0">
+            <button onclick="loadSavedPlan('${plan.id}')" title="このプランを適用" class="px-2.5 py-1 text-xs font-semibold text-brand-700 dark:text-brand-300 bg-brand-50 hover:bg-brand-100 dark:bg-brand-950 dark:hover:bg-brand-900 rounded-lg border border-brand-200 dark:border-brand-800 transition">
+              読込
+            </button>
+            <button onclick="overwriteSavedPlan('${plan.id}')" title="現在のパラメータで上書き保存" class="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+            </button>
+            <button onclick="deleteSavedPlan('${plan.id}')" title="削除" class="p-1 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-lg transition">
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  if (window.lucide) lucide.createIcons();
+}
+
+function updatePresetSelectWithUserPlans() {
+  const userGroup = document.getElementById('userPlansGroup');
+  if (!userGroup) return;
+
+  if (savedPlans.length === 0) {
+    userGroup.innerHTML = '<option disabled>（保存されたプランはありません）</option>';
+    return;
+  }
+
+  userGroup.innerHTML = savedPlans.map(plan => {
+    return `<option value="user_plan_${plan.id}">📁 ${plan.name}</option>`;
+  }).join('');
+}
+
+function exportPlansJson() {
+  const exportPayload = {
+    app: 'AssetForge',
+    version: '1.0.0',
+    exportedAt: new Date().toISOString(),
+    currentPlan: state,
+    savedPlans: savedPlans
+  };
+
+  const jsonStr = JSON.stringify(exportPayload, null, 2);
+  const blob = new Blob([jsonStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  link.setAttribute('download', `AssetForge_プランバックアップ_${dateStr}.json`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  showToast('全プランをJSONファイルとしてダウンロードしました');
+}
+
+function importPlansJson(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const parsed = JSON.parse(e.target.result);
+      if (parsed.savedPlans && Array.isArray(parsed.savedPlans)) {
+        // 既存プランとID重複を避けながら結合
+        const existingIds = new Set(savedPlans.map(p => p.id));
+        let addedCount = 0;
+        parsed.savedPlans.forEach(p => {
+          if (!existingIds.has(p.id)) {
+            savedPlans.push(p);
+            existingIds.add(p.id);
+            addedCount++;
+          }
+        });
+        savePlansToStorage();
+        renderSavedPlanList();
+        updatePresetSelectWithUserPlans();
+
+        if (parsed.currentPlan) {
+          state = { ...DEFAULT_STATE, ...parsed.currentPlan };
+          syncControlsToState();
+          onStateChange();
+        }
+
+        showToast(`JSONから ${addedCount} 件のプランを復元・適用しました！`);
+      } else if (parsed.currentAge !== undefined) {
+        // 単一のstate JSONの場合
+        state = { ...DEFAULT_STATE, ...parsed };
+        syncControlsToState();
+        onStateChange();
+        showToast('パラメータを復元しました');
+      } else {
+        alert('無効なAssetForgeデータファイルです。');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('JSONファイルの読み込みに失敗しました。形式をご確認ください。');
+    }
+  };
+  reader.readAsText(file);
+}
+
 // 起動
 document.addEventListener('DOMContentLoaded', initApp);
+
