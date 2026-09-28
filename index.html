@@ -90,6 +90,12 @@
           <span class="hidden sm:inline">プラン保存</span>
         </button>
 
+        <!-- Plan Compare Button -->
+        <button id="btnHeaderCompare" title="複数プランを横並び比較" class="flex items-center space-x-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg transition">
+          <i data-lucide="scale" class="w-4 h-4 text-slate-500 dark:text-slate-400"></i>
+          <span class="hidden sm:inline">プラン比較</span>
+        </button>
+
         <!-- Share URL Button -->
         <button id="btnShareUrl" title="設定をURLで共有" class="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-800 transition">
           <i data-lucide="share-2" class="w-4 h-4"></i>
@@ -589,6 +595,7 @@
                 <button id="tabChartAssets" class="px-2.5 py-1 rounded-md bg-brand-500 text-white shadow-sm" title="資産残高推移">推移</button>
                 <button id="tabChartMonteCarlo" class="px-2.5 py-1 rounded-md text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="不確実性シミュレーション">確率</button>
                 <button id="tabChartCashflow" class="px-2.5 py-1 rounded-md text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="年間収支">収支</button>
+                <button id="tabChartCompare" class="px-2.5 py-1 rounded-md text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="複数プラン横並び比較">⚖️ 比較</button>
               </div>
             </div>
           </div>
@@ -600,13 +607,61 @@
 
           <!-- Chart Legend & Annotation Description -->
           <div class="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between text-xs text-slate-500 dark:text-slate-400 gap-2">
-            <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-4" id="chartStandardLegends">
               <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-brand-500"></span> 資産総額</span>
               <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-slate-400 dark:bg-slate-600"></span> 累計積立元本</span>
               <span class="flex items-center gap-1.5 text-rose-500" id="legendCrashIndicator"><span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span> 暴落ポイント</span>
             </div>
+            <div class="flex items-center space-x-3 hidden" id="chartCompareLegends">
+              <!-- JSで動的に凡例生成 -->
+            </div>
             <div id="chartInsightNote" class="text-[11px] font-medium text-slate-600 dark:text-slate-300">
               <!-- 動的コメント -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Plan Comparison Result Section (複数プラン横並び比較) -->
+        <div id="planCompareSection" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+            <div class="flex items-center space-x-2">
+              <div class="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-brand-600 dark:text-brand-400">
+                <i data-lucide="scale" class="w-4 h-4"></i>
+              </div>
+              <div>
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">複数プラン横並び比較</h3>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400">前提条件・リタイア資産・FIRE判定・成功率を直接対決</p>
+              </div>
+            </div>
+
+            <!-- Selector Controls -->
+            <div class="flex items-center gap-2">
+              <div class="relative">
+                <select id="compareAddPlanSelect" class="text-xs bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 pr-7 font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer appearance-none">
+                  <option value="">＋ プランを追加...</option>
+                </select>
+                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400">
+                  <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                </div>
+              </div>
+              <button id="btnResetComparePlans" title="比較対象を初期プリセットにリセット" class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 transition">
+                <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+              </button>
+              <button id="btnOpenModalCompare" title="全画面モーダルで大きく比較" class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 transition">
+                <i data-lucide="maximize-2" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Compared Plans Chips list -->
+          <div id="compareChipsContainer" class="flex flex-wrap items-center gap-2">
+            <!-- JSで動的生成 -->
+          </div>
+
+          <!-- Horizontal Comparison Grid (Side-by-side cards) -->
+          <div class="overflow-x-auto pb-2 -mx-1 px-1">
+            <div id="compareCardsGrid" class="flex gap-4 min-w-max">
+              <!-- JSで動的にプランごとの横並びカラムを生成 -->
             </div>
           </div>
         </div>
@@ -771,6 +826,49 @@
       <div class="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100 dark:border-slate-800">
         <button id="btnCancelEventModal" class="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition">キャンセル</button>
         <button id="btnSaveEventModal" class="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition shadow-sm">保存する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: 全画面プラン比較モーダル -->
+  <div id="planCompareModal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-6">
+    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-6xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between p-4 sm:px-6 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
+        <div class="flex items-center space-x-2.5">
+          <div class="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-brand-600 dark:text-brand-400">
+            <i data-lucide="scale" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-slate-900 dark:text-white">複数プラン詳細横並び比較</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400">各シナリオの前提条件と資産推移・FIRE達成度を徹底対決</p>
+          </div>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button id="btnCloseCompareModal" class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+      </div>
+      <!-- Modal Body (Scrollable) -->
+      <div class="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1">
+        <!-- Modal Multi-line Chart -->
+        <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
+          <div class="flex items-center justify-between mb-3 text-xs">
+            <span class="font-bold text-slate-700 dark:text-slate-300">資産推移カーブ重ね合わせ比較</span>
+            <div class="inline-flex p-0.5 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-xs">
+              <button id="btnModalViewNominal" class="px-2 py-0.5 rounded text-xs font-semibold bg-brand-500 text-white">名目</button>
+              <button id="btnModalViewReal" class="px-2 py-0.5 rounded text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white">実質</button>
+            </div>
+          </div>
+          <div class="relative w-full h-[280px] sm:h-[340px]">
+            <canvas id="modalCompareChart"></canvas>
+          </div>
+        </div>
+        <!-- Modal Comparison Cards / Table Container -->
+        <div id="modalCompareCardsContainer" class="overflow-x-auto pb-2">
+          <!-- JSでレンダリング -->
+        </div>
       </div>
     </div>
   </div>

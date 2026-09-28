@@ -257,6 +257,19 @@ let chartInstance = null;
 let currentSimulationResult = null;
 let savedPlans = []; // ユーザーが名前を付けて保存したプラン一覧
 
+// プラン比較用の状態・カラーパレット
+const COMPARE_PALETTES = [
+  { name: 'emerald', hex: '#10b981', borderHex: '#059669', badgeClass: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800' },
+  { name: 'blue', hex: '#3b82f6', borderHex: '#2563eb', badgeClass: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border-blue-300 dark:border-blue-800' },
+  { name: 'purple', hex: '#8b5cf6', borderHex: '#7c3aed', badgeClass: 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border-purple-300 dark:border-purple-800' },
+  { name: 'amber', hex: '#f59e0b', borderHex: '#d97706', badgeClass: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-300 dark:border-amber-800' },
+  { name: 'rose', hex: '#f43f5e', borderHex: '#e11d48', badgeClass: 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border-rose-300 dark:border-rose-800' }
+];
+
+let comparedPlanIds = ['current', 'standard-fire', 'side-fire'];
+let modalCompareChartInstance = null;
+let compareModalView = 'nominal';
+
 // ==========================================
 // 1. 税金・年金・計算ロジック
 // ==========================================
@@ -762,6 +775,51 @@ function initApp() {
   bindSimpleInput('inflationRate', 'value', 'inflationRate', true);
   bindSimpleInput('salaryGrowthRate', 'value', 'salaryGrowthRate', true);
 
+  // プラン比較関連イベントバインド
+  const tabCompare = document.getElementById('tabChartCompare');
+  if (tabCompare) tabCompare.addEventListener('click', () => setChartTab('compare'));
+
+  const btnHdrCompare = document.getElementById('btnHeaderCompare');
+  if (btnHdrCompare) btnHdrCompare.addEventListener('click', openCompareModal);
+
+  const btnOpenModalComp = document.getElementById('btnOpenModalCompare');
+  if (btnOpenModalComp) btnOpenModalComp.addEventListener('click', openCompareModal);
+
+  const btnCloseModalComp = document.getElementById('btnCloseCompareModal');
+  if (btnCloseModalComp) btnCloseModalComp.addEventListener('click', closeCompareModal);
+
+  const selectAddComp = document.getElementById('compareAddPlanSelect');
+  if (selectAddComp) {
+    selectAddComp.addEventListener('change', (e) => {
+      if (e.target.value) {
+        addPlanToCompare(e.target.value);
+        e.target.value = '';
+      }
+    });
+  }
+
+  const btnResetComp = document.getElementById('btnResetComparePlans');
+  if (btnResetComp) {
+    btnResetComp.addEventListener('click', resetComparePlans);
+  }
+
+  const btnModalNom = document.getElementById('btnModalViewNominal');
+  const btnModalReal = document.getElementById('btnModalViewReal');
+  if (btnModalNom && btnModalReal) {
+    btnModalNom.addEventListener('click', () => {
+      compareModalView = 'nominal';
+      btnModalNom.className = 'px-2 py-0.5 rounded text-xs font-semibold bg-brand-500 text-white';
+      btnModalReal.className = 'px-2 py-0.5 rounded text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white';
+      renderCompareSection();
+    });
+    btnModalReal.addEventListener('click', () => {
+      compareModalView = 'real';
+      btnModalReal.className = 'px-2 py-0.5 rounded text-xs font-semibold bg-brand-500 text-white';
+      btnModalNom.className = 'px-2 py-0.5 rounded text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white';
+      renderCompareSection();
+    });
+  }
+
   setupEventModal();
   syncControlsToState();
   updateSimulation();
@@ -844,15 +902,17 @@ function setChartView(view) {
 
 function setChartTab(tab) {
   state.chartTab = tab;
-  const tabs = ['assets', 'monte-carlo', 'cashflow'];
+  const tabs = ['assets', 'monte-carlo', 'cashflow', 'compare'];
   const tabButtons = {
     'assets': document.getElementById('tabChartAssets'),
     'monte-carlo': document.getElementById('tabChartMonteCarlo'),
-    'cashflow': document.getElementById('tabChartCashflow')
+    'cashflow': document.getElementById('tabChartCashflow'),
+    'compare': document.getElementById('tabChartCompare')
   };
 
   tabs.forEach(t => {
     const btn = tabButtons[t];
+    if (!btn) return;
     if (t === tab) {
       btn.className = 'px-2.5 py-1 rounded-md bg-brand-500 text-white shadow-sm font-semibold';
     } else {
@@ -860,7 +920,13 @@ function setChartTab(tab) {
     }
   });
 
+  const cmpSection = document.getElementById('planCompareSection');
+  if (cmpSection && tab === 'compare') {
+    cmpSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
   renderChart();
+  renderCompareSection();
 }
 
 function onStateChange() {
@@ -990,6 +1056,7 @@ function updateSimulation() {
   renderChart();
   renderTable(result.rows);
   renderEventList();
+  renderCompareSection();
 }
 
 function renderAdvice(result, mc) {
@@ -1237,6 +1304,549 @@ function renderChart() {
         }
       }
     });
+  } else if (state.chartTab === 'compare') {
+    const results = getComparedPlanResults();
+    
+    let minAge = Math.min(...results.map(r => r.data.currentAge));
+    let maxAge = Math.max(...results.map(r => r.data.endAge));
+    if (!isFinite(minAge)) minAge = 30;
+    if (!isFinite(maxAge)) maxAge = 100;
+    minAge = Math.max(18, Math.min(80, minAge));
+    maxAge = Math.max(minAge + 1, Math.min(110, maxAge));
+
+    const compareLabels = [];
+    for (let a = minAge; a <= maxAge; a++) {
+      compareLabels.push(`${a}歳`);
+    }
+
+    const datasets = results.map(r => {
+      const data = [];
+      for (let a = minAge; a <= maxAge; a++) {
+        const row = r.sim.rows.find(x => x.age === a);
+        data.push(row ? (isReal ? row.realAsset : row.totalAsset) : null);
+      }
+      return {
+        label: r.name,
+        data,
+        borderColor: r.palette.hex,
+        backgroundColor: 'transparent',
+        borderWidth: 2.5,
+        tension: 0.25,
+        pointRadius: 0,
+        spanGaps: true
+      };
+    });
+
+    chartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: compareLabels,
+        datasets
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: {
+            position: 'top',
+            labels: { color: textColor, font: { size: 11 } }
+          },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `${ctx.dataset.label}: ${formatMan(ctx.parsed.y)}`
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: gridColor },
+            ticks: { color: textColor, maxTicksLimit: 12 }
+          },
+          y: {
+            grid: { color: gridColor },
+            ticks: {
+              color: textColor,
+              callback: (v) => formatMan(v)
+            }
+          }
+        }
+      }
+    });
+
+    const stdLeg = document.getElementById('chartStandardLegends');
+    const cmpLeg = document.getElementById('chartCompareLegends');
+    if (stdLeg) stdLeg.classList.add('hidden');
+    if (cmpLeg) {
+      cmpLeg.classList.remove('hidden');
+      cmpLeg.innerHTML = results.map(r => `
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm" style="background-color: ${r.palette.hex}"></span> ${r.name}</span>
+      `).join('');
+    }
+  }
+
+  // 非compareタブの場合は標準凡例を復帰
+  if (state.chartTab !== 'compare') {
+    const stdLeg = document.getElementById('chartStandardLegends');
+    const cmpLeg = document.getElementById('chartCompareLegends');
+    if (stdLeg) stdLeg.classList.remove('hidden');
+    if (cmpLeg) cmpLeg.classList.add('hidden');
+  }
+}
+
+// ==========================================
+// 複数プラン横並び比較機能
+// ==========================================
+
+/**
+ * プランIDからプランの名称・属性・パラメータを取得
+ */
+function getPlanInfo(id) {
+  if (id === 'current') {
+    return {
+      id: 'current',
+      name: '📍 現在の設定',
+      desc: '編集中のリアルタイムパラメータ',
+      tag: '編集中',
+      isCurrent: true,
+      data: { ...state }
+    };
+  }
+
+  const presetNames = {
+    'standard-fire': '👑 王道FIRE（新NISA全力）',
+    'side-fire': '☕ サイドFIRE（月8万副業）',
+    'steady-koumuin': '🏛️ 堅実公務員（退職金・年金）',
+    'crash-stress-test': '⚡ 暴落耐性（リーマン級直撃）',
+    'conservative': '🛡️ 保守型（現金多め・ゆとり）'
+  };
+
+  const presetDescs = {
+    'standard-fire': '生活費を抑えて新NISA満額投資・王道早期リタイア',
+    'side-fire': 'リタイア後も緩く月8万円稼ぐハイブリッド型FIRE',
+    'steady-koumuin': '退職金1,500万＋共済年金で手堅く盤石な老後',
+    'crash-stress-test': 'リタイア直前に市場暴落35%が直撃する最悪シナリオ検証',
+    'conservative': '現金多め・年金繰下げでゆとり重視の安全設計'
+  };
+
+  if (PRESETS[id]) {
+    return {
+      id,
+      name: presetNames[id] || id,
+      desc: presetDescs[id] || '',
+      tag: 'プリセット',
+      isCurrent: false,
+      data: sanitizeState({ ...DEFAULT_STATE, ...PRESETS[id] })
+    };
+  }
+
+  const userPlan = savedPlans.find(p => p.id === id);
+  if (userPlan) {
+    return {
+      id: userPlan.id,
+      name: `💾 ${userPlan.name}`,
+      desc: `更新: ${userPlan.updatedAt}`,
+      tag: 'マイプラン',
+      isCurrent: false,
+      data: sanitizeState({ ...DEFAULT_STATE, ...userPlan.data })
+    };
+  }
+
+  return null;
+}
+
+/**
+ * 比較選択可能な全プラン一覧
+ */
+function getAllAvailablePlans() {
+  const plans = [
+    { id: 'current', name: '📍 現在の設定（編集中）', group: '現在値' },
+    { id: 'standard-fire', name: '👑 王道FIRE（新NISA全力）', group: 'プリセット' },
+    { id: 'side-fire', name: '☕ サイドFIRE（月8万副業）', group: 'プリセット' },
+    { id: 'steady-koumuin', name: '🏛️ 堅実公務員（退職金・年金）', group: 'プリセット' },
+    { id: 'crash-stress-test', name: '⚡ 暴落耐性（リーマン級直撃）', group: 'プリセット' },
+    { id: 'conservative', name: '🛡️ 保守型（現金多め・ゆとり）', group: 'プリセット' }
+  ];
+
+  savedPlans.forEach(p => {
+    plans.push({
+      id: p.id,
+      name: `💾 ${p.name}`,
+      group: 'マイプラン（保存済み）'
+    });
+  });
+
+  return plans;
+}
+
+/**
+ * 比較対象プランのシミュレーション結果を一括計算
+ */
+function getComparedPlanResults() {
+  return comparedPlanIds.map((id, index) => {
+    const info = getPlanInfo(id);
+    if (!info) return null;
+    const sim = runSimulation(info.data);
+    const mc = runMonteCarloSimulation(info.data, 300); // 比較用は300試行で軽快に
+    const palette = COMPARE_PALETTES[index % COMPARE_PALETTES.length];
+    return {
+      id,
+      name: info.name,
+      desc: info.desc,
+      tag: info.tag,
+      isCurrent: info.isCurrent,
+      data: info.data,
+      sim,
+      mc,
+      palette
+    };
+  }).filter(Boolean);
+}
+
+/**
+ * 比較セクション全体のレンダリング
+ */
+function renderCompareSection() {
+  const results = getComparedPlanResults();
+  const chipsContainer = document.getElementById('compareChipsContainer');
+  const addSelect = document.getElementById('compareAddPlanSelect');
+
+  // 1. チップリストの更新
+  if (chipsContainer) {
+    chipsContainer.innerHTML = results.map((r) => `
+      <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium ${r.palette.badgeClass}">
+        <span class="w-2.5 h-2.5 rounded-full" style="background-color: ${r.palette.hex}"></span>
+        <span class="truncate max-w-[130px] sm:max-w-[180px]" title="${r.name}">${r.name}</span>
+        ${results.length > 1 ? `
+          <button onclick="removePlanFromCompare('${r.id}')" title="比較から除外" class="ml-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+            <i data-lucide="x" class="w-3 h-3"></i>
+          </button>
+        ` : ''}
+      </div>
+    `).join('');
+  }
+
+  // 2. プラン追加ドロップダウンの更新
+  if (addSelect) {
+    const allPlans = getAllAvailablePlans();
+    const unselectedPlans = allPlans.filter(p => !comparedPlanIds.includes(p.id));
+    
+    let html = '<option value="">＋ プランを追加...</option>';
+    const groups = {};
+    unselectedPlans.forEach(p => {
+      if (!groups[p.group]) groups[p.group] = [];
+      groups[p.group].push(p);
+    });
+
+    for (const [groupName, pList] of Object.entries(groups)) {
+      html += `<optgroup label="${groupName}">`;
+      pList.forEach(p => {
+        html += `<option value="${p.id}">${p.name}</option>`;
+      });
+      html += `</optgroup>`;
+    }
+    addSelect.innerHTML = html;
+  }
+
+  // 3. メイン画面の横並びカードグリッド描画
+  renderCompareCards('compareCardsGrid', results, false);
+
+  // 4. モーダルが開いている場合はモーダル側も同期描画
+  const modal = document.getElementById('planCompareModal');
+  if (modal && !modal.classList.contains('hidden')) {
+    renderCompareCards('modalCompareCardsContainer', results, true);
+    renderModalCompareChart(results);
+  }
+
+  if (window.lucide) lucide.createIcons();
+}
+
+/**
+ * 横並び比較カード（カラム）の描画
+ */
+function renderCompareCards(containerId, results, isModal = false) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  if (results.length === 0) {
+    container.innerHTML = '<div class="text-xs text-slate-400 py-6 text-center w-full">比較対象のプランが選択されていません</div>';
+    return;
+  }
+
+  const maxRetire = Math.max(...results.map(r => r.sim.retireAsset));
+  const maxEnd = Math.max(...results.map(r => r.sim.endAsset));
+  const maxSuccess = Math.max(...results.map(r => r.mc.successRate));
+  const isReal = isModal ? (compareModalView === 'real') : (state.chartView === 'real');
+
+  const cardHtml = results.map(r => {
+    const s = r.data;
+    const sim = r.sim;
+    const mc = r.mc;
+    const isBestRetire = (sim.retireAsset === maxRetire && maxRetire > 0);
+    const isBestSuccess = (mc.successRate === maxSuccess && maxSuccess > 0);
+
+    const retireValue = isReal ? sim.retireRealAsset : sim.retireAsset;
+    const endValue = isReal ? sim.endRealAsset : sim.endAsset;
+
+    const fireStatusText = sim.fireTargetReachedAge 
+      ? `<span class="text-brand-600 dark:text-brand-400 font-bold">${sim.fireTargetReachedAge}歳で達成</span>`
+      : (!sim.isDepleted ? '<span class="text-brand-600 dark:text-brand-400 font-bold">リタイア安泰</span>' : `<span class="text-rose-500 font-bold">${sim.depletedAge}歳で枯渇</span>`);
+
+    const lifeSpanText = sim.isDepleted 
+      ? `<span class="text-rose-500 font-bold">${sim.depletedAge}歳で尽きる</span>`
+      : `<span class="text-brand-600 dark:text-brand-400 font-bold">生涯安泰 (${s.endAge}歳+)</span>`;
+
+    const featureTags = [];
+    if (s.enableSeverance) featureTags.push(`💼 退職金${s.severanceAmount}万`);
+    if (s.enableSideFire) featureTags.push(`☕ 副業月${s.sideFireMonthly}万`);
+    if (s.enableCrash) featureTags.push(`⚡ 暴落想定-${s.crashDropRate}%`);
+    if (s.enablePension) featureTags.push(`🛡️ 年金${s.pensionStartAge}歳〜`);
+
+    return `
+      <div class="w-[280px] sm:w-[310px] flex-shrink-0 bg-white dark:bg-slate-800/90 border-2 rounded-2xl p-4 shadow-sm flex flex-col justify-between transition-all" style="border-color: ${r.palette.hex}">
+        <!-- Card Header -->
+        <div class="space-y-1.5 pb-3 border-b border-slate-100 dark:border-slate-700/80">
+          <div class="flex items-center justify-between gap-1">
+            <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${r.palette.badgeClass}">
+              ${r.tag || 'プラン'}
+            </span>
+            <div class="flex items-center space-x-1">
+              <span class="w-3 h-3 rounded-full" style="background-color: ${r.palette.hex}"></span>
+              ${results.length > 1 ? `
+                <button onclick="removePlanFromCompare('${r.id}')" title="比較から外す" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5">
+                  <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                </button>
+              ` : ''}
+            </div>
+          </div>
+          <h4 class="text-sm font-bold text-slate-900 dark:text-white leading-tight truncate" title="${r.name}">${r.name}</h4>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 min-h-[28px]">${r.desc || '-'}</p>
+        </div>
+
+        <!-- Key Metrics (KPIs) -->
+        <div class="py-3 space-y-2.5 text-xs">
+          <!-- リタイア時資産 -->
+          <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+            <div class="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">
+              <span>リタイア時資産 (${s.retireAge}歳)</span>
+              ${isBestRetire ? '<span class="px-1.5 py-0.2 text-[9px] font-bold rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">👑 最高額</span>' : ''}
+            </div>
+            <div class="text-lg font-extrabold text-slate-900 dark:text-white flex items-baseline justify-between">
+              <span>${formatMan(retireValue)}</span>
+              <span class="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">元本比 +${sim.retirePrincipal > 0 ? Math.round(((sim.retireAsset - sim.retirePrincipal) / sim.retirePrincipal) * 100) : 0}%</span>
+            </div>
+          </div>
+
+          <!-- FIRE判定 & 成功率 -->
+          <div class="grid grid-cols-2 gap-2">
+            <div class="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+              <span class="block text-[10px] text-slate-400">FIRE判定 (4%則)</span>
+              <div class="text-xs font-bold mt-0.5 truncate">${fireStatusText}</div>
+            </div>
+            <div class="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+              <div class="flex items-center justify-between text-[10px] text-slate-400">
+                <span>MC成功率</span>
+                ${isBestSuccess ? '<span class="text-[9px] text-amber-600 font-bold">👑</span>' : ''}
+              </div>
+              <div class="text-xs font-extrabold text-slate-900 dark:text-white mt-0.5">${mc.successRate}%</div>
+            </div>
+          </div>
+
+          <!-- 人生終了時資産 & 資産寿命 -->
+          <div class="space-y-1.5 pt-1 text-[11px]">
+            <div class="flex justify-between items-center text-slate-600 dark:text-slate-300">
+              <span class="text-slate-400">資産寿命</span>
+              <span>${lifeSpanText}</span>
+            </div>
+            <div class="flex justify-between items-center text-slate-600 dark:text-slate-300">
+              <span class="text-slate-400">寿命時資産 (${s.endAge}歳)</span>
+              <span class="font-bold text-slate-900 dark:text-white">${formatMan(endValue)}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Assumptions Summary -->
+        <div class="pt-3 border-t border-slate-100 dark:border-slate-700/80 text-[11px] text-slate-500 dark:text-slate-400 space-y-1">
+          <div class="flex justify-between">
+            <span>期間</span>
+            <span class="font-medium text-slate-700 dark:text-slate-200">${s.currentAge}歳 → ${s.retireAge}歳 (${s.retireAge - s.currentAge}年)</span>
+          </div>
+          <div class="flex justify-between">
+            <span>積立額</span>
+            <span class="font-medium text-slate-700 dark:text-slate-200">月${s.monthlyInvestment}万 / 年${s.monthlyInvestment * 12 + s.annualBonusInvestment}万</span>
+          </div>
+          <div class="flex justify-between">
+            <span>想定利回り</span>
+            <span class="font-medium text-slate-700 dark:text-slate-200">${s.expectedReturn}%</span>
+          </div>
+          <div class="flex justify-between">
+            <span>生活費</span>
+            <span class="font-medium text-slate-700 dark:text-slate-200">月${s.monthlyLivingCost}万 (年${s.monthlyLivingCost * 12}万)</span>
+          </div>
+          ${featureTags.length > 0 ? `
+            <div class="pt-1 flex flex-wrap gap-1">
+              ${featureTags.map(t => `<span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700/60 text-[10px]">${t}</span>`).join('')}
+            </div>
+          ` : ''}
+        </div>
+
+        <!-- Action Button -->
+        <div class="pt-3 mt-2 border-t border-slate-100 dark:border-slate-700/80">
+          ${r.isCurrent ? `
+            <div class="w-full py-1.5 text-center text-xs font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/50 rounded-xl">
+              📍 編集中の現在の設定
+            </div>
+          ` : `
+            <button onclick="applyPlanFromCompare('${r.id}')" class="w-full py-1.5 text-xs font-semibold text-white bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 rounded-xl transition shadow-xs flex items-center justify-center space-x-1">
+              <i data-lucide="check" class="w-3.5 h-3.5"></i>
+              <span>このプランを読込・適用</span>
+            </button>
+          `}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.innerHTML = cardHtml;
+  if (window.lucide) lucide.createIcons();
+}
+
+/**
+ * モーダル内マルチラインチャートの描画
+ */
+function renderModalCompareChart(results) {
+  const canvas = document.getElementById('modalCompareChart');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const isDark = document.documentElement.classList.contains('dark');
+  const gridColor = isDark ? 'rgba(51, 65, 85, 0.4)' : 'rgba(226, 232, 240, 0.8)';
+  const textColor = isDark ? '#94a3b8' : '#64748b';
+  const isReal = (compareModalView === 'real');
+
+  if (modalCompareChartInstance) {
+    modalCompareChartInstance.destroy();
+  }
+
+  if (!results || results.length === 0) return;
+
+  let minAge = Math.min(...results.map(r => r.data.currentAge));
+  let maxAge = Math.max(...results.map(r => r.data.endAge));
+  if (!isFinite(minAge)) minAge = 30;
+  if (!isFinite(maxAge)) maxAge = 100;
+  minAge = Math.max(18, Math.min(80, minAge));
+  maxAge = Math.max(minAge + 1, Math.min(110, maxAge));
+
+  const labels = [];
+  for (let a = minAge; a <= maxAge; a++) {
+    labels.push(`${a}歳`);
+  }
+
+  const datasets = results.map(r => {
+    const data = [];
+    for (let a = minAge; a <= maxAge; a++) {
+      const row = r.sim.rows.find(x => x.age === a);
+      data.push(row ? (isReal ? row.realAsset : row.totalAsset) : null);
+    }
+    return {
+      label: r.name,
+      data,
+      borderColor: r.palette.hex,
+      backgroundColor: 'transparent',
+      borderWidth: 2.5,
+      tension: 0.25,
+      pointRadius: 0,
+      spanGaps: true
+    };
+  });
+
+  modalCompareChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: { color: textColor, font: { size: 11 } }
+        },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label}: ${formatMan(ctx.parsed.y)}`
+          }
+        }
+      },
+      scales: {
+        x: { grid: { color: gridColor }, ticks: { color: textColor, maxTicksLimit: 14 } },
+        y: { grid: { color: gridColor }, ticks: { color: textColor, callback: (v) => formatMan(v) } }
+      }
+    }
+  });
+}
+
+window.addPlanToCompare = function(planId) {
+  if (!planId) return;
+  if (!comparedPlanIds.includes(planId)) {
+    if (comparedPlanIds.length >= 5) {
+      showToast('比較できるプランは最大5つまでです');
+      return;
+    }
+    comparedPlanIds.push(planId);
+    renderCompareSection();
+    if (state.chartTab === 'compare') {
+      renderChart();
+    }
+    showToast('比較対象にプランを追加しました');
+  }
+};
+
+window.removePlanFromCompare = function(planId) {
+  if (comparedPlanIds.length <= 1) {
+    showToast('比較プランは最低1つ必要です');
+    return;
+  }
+  comparedPlanIds = comparedPlanIds.filter(id => id !== planId);
+  renderCompareSection();
+  if (state.chartTab === 'compare') {
+    renderChart();
+  }
+};
+
+window.resetComparePlans = function() {
+  comparedPlanIds = ['current', 'standard-fire', 'side-fire'];
+  renderCompareSection();
+  if (state.chartTab === 'compare') {
+    renderChart();
+  }
+  showToast('比較対象をリセットしました');
+};
+
+window.applyPlanFromCompare = function(planId) {
+  const info = getPlanInfo(planId);
+  if (!info || info.isCurrent) return;
+  state = sanitizeState({ ...DEFAULT_STATE, ...info.data });
+  syncControlsToState();
+  onStateChange();
+  const modal = document.getElementById('planCompareModal');
+  if (modal) modal.classList.add('hidden');
+  showToast(`プラン「${info.name}」をエディタに読み込みました！`);
+};
+
+function openCompareModal() {
+  const modal = document.getElementById('planCompareModal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  renderCompareSection();
+  if (window.lucide) lucide.createIcons();
+}
+
+function closeCompareModal() {
+  const modal = document.getElementById('planCompareModal');
+  if (modal) modal.classList.add('hidden');
+  if (modalCompareChartInstance) {
+    modalCompareChartInstance.destroy();
+    modalCompareChartInstance = null;
   }
 }
 
@@ -1619,6 +2229,7 @@ function saveCurrentPlan(customName) {
   savePlansToStorage();
   renderSavedPlanList();
   updatePresetSelectWithUserPlans();
+  renderCompareSection();
   showToast(`プラン「${planName}」を保存しました！`);
 }
 
@@ -1651,6 +2262,8 @@ window.overwriteSavedPlan = function(id) {
 
   savePlansToStorage();
   renderSavedPlanList();
+  renderCompareSection();
+  if (state.chartTab === 'compare') renderChart();
   showToast(`プラン「${savedPlans[planIndex].name}」を現在値で上書き保存しました`);
 };
 
@@ -1663,9 +2276,12 @@ window.deleteSavedPlan = function(id) {
   }
 
   savedPlans = savedPlans.filter(p => p.id !== id);
+  comparedPlanIds = comparedPlanIds.filter(pid => pid !== id);
   savePlansToStorage();
   renderSavedPlanList();
   updatePresetSelectWithUserPlans();
+  renderCompareSection();
+  if (state.chartTab === 'compare') renderChart();
   showToast(`プラン「${planName}」を削除しました`);
 };
 
@@ -1776,6 +2392,7 @@ function importPlansJson(file) {
         savePlansToStorage();
         renderSavedPlanList();
         updatePresetSelectWithUserPlans();
+        renderCompareSection();
 
         if (parsed.currentPlan) {
           state = sanitizeState({ ...DEFAULT_STATE, ...parsed.currentPlan });
