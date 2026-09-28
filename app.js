@@ -706,10 +706,10 @@ function initApp() {
   bindSync('retireAge', 'retireAgeNum', 'retireAgeVal', (v) => `${v}歳`, 'retireAge');
   bindSync('endAge', 'endAgeNum', 'endAgeVal', (v) => `${v}歳`, 'endAge');
   bindSync('currentAsset', 'currentAssetNum', 'currentAssetVal', (v) => formatMan(v), 'currentAsset');
-  bindSync('monthlyInvestment', 'monthlyInvestmentNum', 'monthlyInvestmentVal', (v) => `${v}万円/月`, 'monthlyInvestment');
+  bindSync('monthlyInvestment', 'monthlyInvestmentNum', 'monthlyInvestmentVal', (v) => `${v}万円/月 (年${Math.round(v * 12 * 10) / 10}万)`, 'monthlyInvestment');
   bindSync('annualBonusInvestment', 'annualBonusInvestmentNum', 'annualBonusInvestmentVal', (v) => `${v}万円/年`, 'annualBonusInvestment');
   bindSync('expectedReturn', 'expectedReturnNum', 'expectedReturnVal', (v) => `${v.toFixed(1)}%`, 'expectedReturn');
-  bindSync('monthlyLivingCost', 'monthlyLivingCostNum', 'monthlyLivingCostVal', (v) => `${v}万円/月`, 'monthlyLivingCost');
+  bindSync('monthlyLivingCost', 'monthlyLivingCostNum', 'monthlyLivingCostVal', (v) => `${v}万円/月 (年${Math.round(v * 12 * 10) / 10}万)`, 'monthlyLivingCost');
 
   bindSimpleInput('enableSeverance', 'checked', 'enableSeverance');
   
@@ -1002,6 +1002,35 @@ function onStateChange() {
   const pDiff = Math.round((pMult - 1.0) * 100);
   const pSign = pDiff > 0 ? `+${pDiff}%` : pDiff < 0 ? `${pDiff}%` : '±0%';
   document.getElementById('pensionAdjustmentLabel').textContent = `${Math.round(pMult * 100)}%受給 (${pSign})`;
+
+  // 月間生活費の年間換算（入力パラメータで動的計算）
+  const livingCostAnnual = Math.round(state.monthlyLivingCost * 12 * 10) / 10;
+  const livingCostAnnualEl = document.getElementById('monthlyLivingCostAnnualVal');
+  if (livingCostAnnualEl) {
+    livingCostAnnualEl.textContent = `万円/月 (年間${livingCostAnnual.toLocaleString()}万円)`;
+  }
+  const livingCostValEl = document.getElementById('monthlyLivingCostVal');
+  if (livingCostValEl) {
+    livingCostValEl.textContent = `${state.monthlyLivingCost}万円/月 (年${livingCostAnnual.toLocaleString()}万)`;
+  }
+
+  // 毎月積立額の年間換算（入力パラメータで動的計算）
+  const investAnnual = Math.round(state.monthlyInvestment * 12 * 10) / 10;
+  const investAnnualEl = document.getElementById('monthlyInvestmentAnnualVal');
+  if (investAnnualEl) {
+    investAnnualEl.textContent = `万円/月 (年間${investAnnual.toLocaleString()}万円)`;
+  }
+  const investValEl = document.getElementById('monthlyInvestmentVal');
+  if (investValEl) {
+    investValEl.textContent = `${state.monthlyInvestment}万円/月 (年${investAnnual.toLocaleString()}万)`;
+  }
+
+  // サイドFIRE副業月収の年間換算（入力パラメータで動的計算）
+  const sideFireAnnual = Math.round(state.sideFireMonthly * 12 * 10) / 10;
+  const sideFireAnnualEl = document.getElementById('sideFireAnnualVal');
+  if (sideFireAnnualEl) {
+    sideFireAnnualEl.textContent = `年間${sideFireAnnual.toLocaleString()}万円の労働収入`;
+  }
 
   updateSimulation();
   saveStateToLocal();
@@ -1994,9 +2023,12 @@ function syncControlsToState() {
   document.getElementById('currentAssetNum').value = state.currentAsset;
   document.getElementById('currentAssetVal').textContent = formatMan(state.currentAsset);
 
+  const investAnnual = Math.round(state.monthlyInvestment * 12 * 10) / 10;
   document.getElementById('monthlyInvestment').value = state.monthlyInvestment;
   document.getElementById('monthlyInvestmentNum').value = state.monthlyInvestment;
-  document.getElementById('monthlyInvestmentVal').textContent = `${state.monthlyInvestment}万円/月`;
+  document.getElementById('monthlyInvestmentVal').textContent = `${state.monthlyInvestment}万円/月 (年${investAnnual.toLocaleString()}万)`;
+  const miEl = document.getElementById('monthlyInvestmentAnnualVal');
+  if (miEl) miEl.textContent = `万円/月 (年間${investAnnual.toLocaleString()}万円)`;
 
   document.getElementById('annualBonusInvestment').value = state.annualBonusInvestment;
   document.getElementById('annualBonusInvestmentNum').value = state.annualBonusInvestment;
@@ -2006,9 +2038,12 @@ function syncControlsToState() {
   document.getElementById('expectedReturnNum').value = state.expectedReturn;
   document.getElementById('expectedReturnVal').textContent = `${state.expectedReturn.toFixed(1)}%`;
 
+  const livingCostAnnual = Math.round(state.monthlyLivingCost * 12 * 10) / 10;
   document.getElementById('monthlyLivingCost').value = state.monthlyLivingCost;
   document.getElementById('monthlyLivingCostNum').value = state.monthlyLivingCost;
-  document.getElementById('monthlyLivingCostVal').textContent = `${state.monthlyLivingCost}万円/月`;
+  document.getElementById('monthlyLivingCostVal').textContent = `${state.monthlyLivingCost}万円/月 (年${livingCostAnnual.toLocaleString()}万)`;
+  const mlcEl = document.getElementById('monthlyLivingCostAnnualVal');
+  if (mlcEl) mlcEl.textContent = `万円/月 (年間${livingCostAnnual.toLocaleString()}万円)`;
 
   document.getElementById('enableSeverance').checked = state.enableSeverance;
   const chkSync = document.getElementById('syncSeveranceWithRetire');
@@ -2026,6 +2061,9 @@ function syncControlsToState() {
   document.getElementById('enableSideFire').checked = state.enableSideFire;
   document.getElementById('sideFireMonthly').value = state.sideFireMonthly;
   document.getElementById('sideFireEndAge').value = state.sideFireEndAge;
+  const sideFireAnnual = Math.round(state.sideFireMonthly * 12 * 10) / 10;
+  const sfEl = document.getElementById('sideFireAnnualVal');
+  if (sfEl) sfEl.textContent = `年間${sideFireAnnual.toLocaleString()}万円の労働収入`;
 
   document.getElementById('enablePension').checked = state.enablePension;
   document.getElementById('pensionStartAge').value = state.pensionStartAge;
