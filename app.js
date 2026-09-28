@@ -3,6 +3,70 @@
  * Advanced Asset Accumulation & FIRE Simulation Engine
  */
 
+// 最大シミュレーション期間の安全ハードリミット（メモリ枯渇・クラッシュ防止）
+const MAX_SIMULATION_YEARS = 95; // 18歳〜110歳で最大93年
+
+// 全パラメータの安全入力限界値（最小値・最大値・初期値）
+const PARAM_LIMITS = {
+  currentAge: { min: 18, max: 75, default: 30 },
+  retireAge: { min: 20, max: 85, default: 50 },
+  endAge: { min: 60, max: 110, default: 100 },
+  currentAsset: { min: 0, max: 100000, default: 500 }, // 10億円
+  monthlyInvestment: { min: 0, max: 1000, default: 10 }, // 1,000万円/月
+  annualBonusInvestment: { min: 0, max: 3000, default: 30 }, // 3,000万円/年
+  expectedReturn: { min: -20, max: 30, default: 5.0 }, // -20%〜30%
+  monthlyLivingCost: { min: 1, max: 200, default: 20 }, // 200万円/月
+  nisaPriority: { min: 0, max: 3600, default: 1800 }, // 3,600万円
+  severanceAge: { min: 20, max: 85, default: 50 },
+  severanceAmount: { min: 0, max: 10000, default: 1500 }, // 1億円
+  severanceYears: { min: 0, max: 50, default: 28 },
+  crashAge: { min: 18, max: 110, default: 45 },
+  crashDropRate: { min: 5, max: 90, default: 35 },
+  crashRecoveryYears: { min: 1, max: 20, default: 3 },
+  sideFireMonthly: { min: 0, max: 100, default: 8 },
+  sideFireEndAge: { min: 20, max: 110, default: 65 },
+  pensionStartAge: { min: 60, max: 75, default: 65 },
+  pensionMonthly: { min: 0, max: 50, default: 15 },
+  inflationRate: { min: -5, max: 15, default: 1.5 },
+  salaryGrowthRate: { min: -5, max: 15, default: 1.0 }
+};
+
+/**
+ * 入力値を安全な許容範囲内にクランプ（丸め込み）する
+ */
+function clampParam(key, value) {
+  const limit = PARAM_LIMITS[key];
+  if (!limit) return value;
+  let num = parseFloat(value);
+  if (isNaN(num)) return limit.default;
+  if (num < limit.min) return limit.min;
+  if (num > limit.max) return limit.max;
+  return num;
+}
+
+/**
+ * 状態オブジェクト全体をサニタイズ（安全検証・クランプ）する
+ */
+function sanitizeState(s) {
+  const safe = { ...s };
+  for (const key of Object.keys(PARAM_LIMITS)) {
+    if (safe[key] !== undefined) {
+      safe[key] = clampParam(key, safe[key]);
+    }
+  }
+  // 年齢の整合性チェック
+  if (safe.retireAge <= safe.currentAge) {
+    safe.retireAge = Math.min(PARAM_LIMITS.retireAge.max, safe.currentAge + 1);
+  }
+  if (safe.endAge <= safe.retireAge) {
+    safe.endAge = Math.min(PARAM_LIMITS.endAge.max, safe.retireAge + 1);
+    if (safe.retireAge >= safe.endAge) {
+      safe.retireAge = safe.endAge - 1;
+    }
+  }
+  return safe;
+}
+
 // 状態管理の初期値
 const DEFAULT_STATE = {
   mode: 'advance', // 'standard' | 'advance'
@@ -252,7 +316,9 @@ function getPensionMultiplier(startAge) {
  * 単一年のシミュレーション実行（メインエンジン）
  */
 function runSimulation(s) {
-  const yearsCount = Math.max(1, s.endAge - s.currentAge + 1);
+  const safeCurrentAge = Math.max(18, Math.min(PARAM_LIMITS.currentAge.max, Math.floor(s.currentAge || 30)));
+  const safeEndAge = Math.max(safeCurrentAge + 1, Math.min(PARAM_LIMITS.endAge.max, Math.floor(s.endAge || 100)));
+  const yearsCount = Math.min(MAX_SIMULATION_YEARS, Math.max(1, safeEndAge - safeCurrentAge + 1));
   const rows = [];
 
   let currentTotalAsset = s.currentAsset;
@@ -272,7 +338,7 @@ function runSimulation(s) {
   const annualNetPension = adjustedPensionMonthly * 12 * 0.85; // 社保・税引き手取り概算
 
   for (let i = 0; i < yearsCount; i++) {
-    const age = s.currentAge + i;
+    const age = safeCurrentAge + i;
     const isRetired = (age >= s.retireAge);
     const eventsThisYear = s.events.filter(e => e.age === age);
 
@@ -438,7 +504,9 @@ function runSimulation(s) {
  * モンテカルロ・シミュレーション（1,000回試行）
  */
 function runMonteCarloSimulation(s, trials = 1000) {
-  const yearsCount = Math.max(1, s.endAge - s.currentAge + 1);
+  const safeCurrentAge = Math.max(18, Math.min(PARAM_LIMITS.currentAge.max, Math.floor(s.currentAge || 30)));
+  const safeEndAge = Math.max(safeCurrentAge + 1, Math.min(PARAM_LIMITS.endAge.max, Math.floor(s.endAge || 100)));
+  const yearsCount = Math.min(MAX_SIMULATION_YEARS, Math.max(1, safeEndAge - safeCurrentAge + 1));
   const meanReturn = s.expectedReturn / 100;
   const volatility = 0.15;
 
@@ -450,7 +518,7 @@ function runMonteCarloSimulation(s, trials = 1000) {
     let trialDepleted = false;
 
     for (let i = 0; i < yearsCount; i++) {
-      const age = s.currentAge + i;
+      const age = safeCurrentAge + i;
       const isRetired = (age >= s.retireAge);
 
       let income = 0;
@@ -536,24 +604,45 @@ function bindSync(sliderId, numberId, valSpanId, formatFn, stateKey) {
   const slider = document.getElementById(sliderId);
   const number = document.getElementById(numberId);
   const valSpan = valSpanId ? document.getElementById(valSpanId) : null;
+  const limit = PARAM_LIMITS[stateKey];
 
   if (!slider || !number) return;
 
   const update = (newVal, source) => {
     let num = parseFloat(newVal);
-    if (isNaN(num)) num = 0;
+    if (isNaN(num)) num = limit ? limit.default : 0;
     
-    state[stateKey] = num;
+    // 上限ガード: 入力中に上限を超えたら即時クランプしてメモリ大量消費・ループ暴走を防止
+    if (limit && num > limit.max) {
+      num = limit.max;
+      if (source === 'number') number.value = limit.max;
+    }
 
-    if (source !== 'slider') slider.value = num;
-    if (source !== 'number') number.value = num;
-    if (valSpan && formatFn) valSpan.textContent = formatFn(num);
+    // stateにセットする値は安全範囲にクランプ
+    const safeVal = limit ? clampParam(stateKey, num) : num;
+    state[stateKey] = safeVal;
+
+    if (source !== 'slider') slider.value = safeVal;
+
+    if (source === 'blur') {
+      if (limit && num < limit.min) {
+        number.value = limit.min;
+        state[stateKey] = limit.min;
+      } else {
+        number.value = state[stateKey];
+      }
+    } else if (source !== 'number') {
+      number.value = safeVal;
+    }
+
+    if (valSpan && formatFn) valSpan.textContent = formatFn(state[stateKey]);
 
     onStateChange();
   };
 
   slider.addEventListener('input', (e) => update(e.target.value, 'slider'));
   number.addEventListener('input', (e) => update(e.target.value, 'number'));
+  number.addEventListener('change', (e) => update(e.target.value, 'blur'));
   number.addEventListener('blur', (e) => update(e.target.value, 'blur'));
 }
 
@@ -624,15 +713,29 @@ function initApp() {
 
   const inputSevAge = document.getElementById('severanceAge');
   if (inputSevAge) {
+    const limitSev = PARAM_LIMITS.severanceAge;
     inputSevAge.addEventListener('input', () => {
-      const val = parseFloat(inputSevAge.value);
+      let val = parseFloat(inputSevAge.value);
       if (!isNaN(val)) {
-        state.severanceAge = val;
+        if (limitSev && val > limitSev.max) {
+          val = limitSev.max;
+          inputSevAge.value = limitSev.max;
+        }
+        state.severanceAge = clampParam('severanceAge', val);
         // 手動で編集されたら連動をOFFにする
-        if (state.syncSeveranceWithRetire && val !== state.retireAge) {
+        if (state.syncSeveranceWithRetire && state.severanceAge !== state.retireAge) {
           state.syncSeveranceWithRetire = false;
           if (chkSyncSev) chkSyncSev.checked = false;
         }
+        onStateChange();
+      }
+    });
+    inputSevAge.addEventListener('blur', () => {
+      let val = parseFloat(inputSevAge.value);
+      if (isNaN(val) || (limitSev && val < limitSev.min)) {
+        val = limitSev ? limitSev.min : 50;
+        inputSevAge.value = val;
+        state.severanceAge = val;
         onStateChange();
       }
     });
@@ -667,16 +770,39 @@ function initApp() {
 function bindSimpleInput(elementId, prop, stateKey, isNumber = false) {
   const el = document.getElementById(elementId);
   if (!el) return;
+  const limit = PARAM_LIMITS[stateKey];
 
-  el.addEventListener('change', () => {
+  const handleUpdate = (isFinal = false) => {
     let val = el[prop];
     if (isNumber) {
-      val = parseFloat(val);
-      if (isNaN(val)) val = 0;
+      let num = parseFloat(val);
+      if (isNaN(num)) num = limit ? limit.default : 0;
+      if (limit) {
+        if (num > limit.max) {
+          num = limit.max;
+          el.value = limit.max;
+        } else if (isFinal && num < limit.min) {
+          num = limit.min;
+          el.value = limit.min;
+        }
+      }
+      val = limit ? clampParam(stateKey, num) : num;
     }
     state[stateKey] = val;
     onStateChange();
-  });
+  };
+
+  el.addEventListener('change', () => handleUpdate(true));
+  if (isNumber) {
+    el.addEventListener('input', (e) => {
+      let num = parseFloat(e.target.value);
+      if (limit && !isNaN(num) && num > limit.max) {
+        e.target.value = limit.max;
+        handleUpdate(false);
+      }
+    });
+    el.addEventListener('blur', () => handleUpdate(true));
+  }
 }
 
 function setMode(mode) {
@@ -738,18 +864,43 @@ function setChartTab(tab) {
 }
 
 function onStateChange() {
+  // 1. 各年齢を安全上限・下限にクランプ
+  state.currentAge = clampParam('currentAge', state.currentAge);
+  state.retireAge = clampParam('retireAge', state.retireAge);
+  state.endAge = clampParam('endAge', state.endAge);
+
+  // 2. 年齢順序の整合性ガード（ただし上限を超えない）
   if (state.retireAge <= state.currentAge) {
-    state.retireAge = state.currentAge + 1;
-    document.getElementById('retireAge').value = state.retireAge;
-    document.getElementById('retireAgeNum').value = state.retireAge;
-    document.getElementById('retireAgeVal').textContent = `${state.retireAge}歳`;
+    state.retireAge = Math.min(PARAM_LIMITS.retireAge.max, state.currentAge + 1);
   }
   if (state.endAge <= state.retireAge) {
-    state.endAge = state.retireAge + 1;
-    document.getElementById('endAge').value = state.endAge;
-    document.getElementById('endAgeNum').value = state.endAge;
-    document.getElementById('endAgeVal').textContent = `${state.endAge}歳`;
+    state.endAge = Math.min(PARAM_LIMITS.endAge.max, state.retireAge + 1);
+    if (state.retireAge >= state.endAge) {
+      state.retireAge = state.endAge - 1;
+    }
   }
+
+  // UI入力欄との確実な同期
+  const rEl = document.getElementById('retireAge');
+  const rnEl = document.getElementById('retireAgeNum');
+  const rvEl = document.getElementById('retireAgeVal');
+  if (rEl) rEl.value = state.retireAge;
+  if (rnEl) rnEl.value = state.retireAge;
+  if (rvEl) rvEl.textContent = `${state.retireAge}歳`;
+
+  const eEl = document.getElementById('endAge');
+  const enEl = document.getElementById('endAgeNum');
+  const evEl = document.getElementById('endAgeVal');
+  if (eEl) eEl.value = state.endAge;
+  if (enEl) enEl.value = state.endAge;
+  if (evEl) evEl.textContent = `${state.endAge}歳`;
+
+  const cEl = document.getElementById('currentAge');
+  const cnEl = document.getElementById('currentAgeNum');
+  const cvEl = document.getElementById('currentAgeVal');
+  if (cEl) cEl.value = state.currentAge;
+  if (cnEl) cnEl.value = state.currentAge;
+  if (cvEl) cvEl.textContent = `${state.currentAge}歳`;
 
   // 退職金受取年齢をリタイア年齢から自動的に持ってくる
   const sevAgeEl = document.getElementById('severanceAge');
@@ -1144,8 +1295,14 @@ function setupEventModal() {
 
   btnSave.addEventListener('click', () => {
     const name = document.getElementById('modalEventName').value.trim() || '一時収支';
-    const age = parseInt(document.getElementById('modalEventAge').value, 10);
-    const amount = parseFloat(document.getElementById('modalEventAmount').value);
+    let age = parseInt(document.getElementById('modalEventAge').value, 10);
+    let amount = parseFloat(document.getElementById('modalEventAmount').value);
+
+    if (isNaN(age)) age = state.currentAge + 5;
+    age = Math.max(18, Math.min(PARAM_LIMITS.endAge.max, age));
+
+    if (isNaN(amount)) amount = 0;
+    amount = Math.max(-100000, Math.min(100000, amount));
 
     state.events.push({
       id: 'ev_' + Date.now(),
@@ -1205,7 +1362,7 @@ function formatMan(val) {
 }
 
 function applyPreset(p) {
-  state = { ...state, ...p };
+  state = sanitizeState({ ...state, ...p });
   syncControlsToState();
   onStateChange();
 }
@@ -1298,7 +1455,7 @@ function loadSavedState() {
     try {
       const decoded = decodeURIComponent(atob(window.location.hash.substring(1)));
       const parsed = JSON.parse(decoded);
-      state = { ...DEFAULT_STATE, ...parsed };
+      state = sanitizeState({ ...DEFAULT_STATE, ...parsed });
       return;
     } catch (e) {
       console.warn('Hash parse error:', e);
@@ -1309,7 +1466,7 @@ function loadSavedState() {
     const saved = localStorage.getItem('assetforge_state');
     if (saved) {
       const parsed = JSON.parse(saved);
-      state = { ...DEFAULT_STATE, ...parsed };
+      state = sanitizeState({ ...DEFAULT_STATE, ...parsed });
     }
   } catch (e) {
     console.warn('LocalStorage load error:', e);
@@ -1469,7 +1626,7 @@ window.loadSavedPlan = function(id) {
   const plan = savedPlans.find(p => p.id === id);
   if (!plan) return;
 
-  state = { ...DEFAULT_STATE, ...JSON.parse(JSON.stringify(plan.data)) };
+  state = sanitizeState({ ...DEFAULT_STATE, ...JSON.parse(JSON.stringify(plan.data)) });
   syncControlsToState();
   onStateChange();
 
@@ -1621,7 +1778,7 @@ function importPlansJson(file) {
         updatePresetSelectWithUserPlans();
 
         if (parsed.currentPlan) {
-          state = { ...DEFAULT_STATE, ...parsed.currentPlan };
+          state = sanitizeState({ ...DEFAULT_STATE, ...parsed.currentPlan });
           syncControlsToState();
           onStateChange();
         }
@@ -1629,7 +1786,7 @@ function importPlansJson(file) {
         showToast(`JSONから ${addedCount} 件のプランを復元・適用しました！`);
       } else if (parsed.currentAge !== undefined) {
         // 単一のstate JSONの場合
-        state = { ...DEFAULT_STATE, ...parsed };
+        state = sanitizeState({ ...DEFAULT_STATE, ...parsed });
         syncControlsToState();
         onStateChange();
         showToast('パラメータを復元しました');
