@@ -816,15 +816,15 @@ function updateSimulation() {
   if (result.fireTargetReachedAge && result.fireTargetReachedAge <= state.retireAge) {
     kpiFireStatus.innerHTML = `<span class="text-brand-600 dark:text-brand-400 font-bold">${result.fireTargetReachedAge}歳でFIRE達成可</span>`;
     kpiFireSub.innerHTML = `目標4%資産 (${formatMan(result.targetFireAsset)}) 達成`;
-    kpiFireBadgeIcon.className = 'p-1 rounded-md bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400';
+    kpiFireBadgeIcon.className = 'p-1 rounded-md bg-slate-100 dark:bg-slate-800 text-emerald-600 dark:text-emerald-400';
   } else if (!result.isDepleted && result.endAsset > 0) {
     kpiFireStatus.innerHTML = `<span class="text-brand-600 dark:text-brand-400 font-bold">リタイア安泰</span>`;
     kpiFireSub.innerHTML = `必要目標: ${formatMan(result.targetFireAsset)}`;
-    kpiFireBadgeIcon.className = 'p-1 rounded-md bg-brand-50 dark:bg-brand-950/60 text-brand-600 dark:text-brand-400';
+    kpiFireBadgeIcon.className = 'p-1 rounded-md bg-slate-100 dark:bg-slate-800 text-brand-600 dark:text-brand-400';
   } else {
     kpiFireStatus.innerHTML = `<span class="text-rose-500 font-bold">${result.depletedAge}歳で枯渇恐れ</span>`;
     kpiFireSub.innerHTML = `目標不足: 毎月+${Math.round((result.targetFireAsset - result.retireAsset) / ((state.retireAge - state.currentAge) * 12))}万推奨`;
-    kpiFireBadgeIcon.className = 'p-1 rounded-md bg-rose-50 dark:bg-rose-950/60 text-rose-500';
+    kpiFireBadgeIcon.className = 'p-1 rounded-md bg-slate-100 dark:bg-slate-800 text-rose-500';
   }
 
   document.getElementById('kpiSuccessRate').textContent = `${monteCarlo.successRate}%`;
