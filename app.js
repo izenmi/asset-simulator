@@ -1546,7 +1546,7 @@ function renderSavedPlanList() {
             </div>
           </div>
           <div class="flex items-center space-x-1 shrink-0">
-            <button onclick="loadSavedPlan('${plan.id}')" title="このプランを適用" class="px-2.5 py-1 text-xs font-semibold text-brand-700 dark:text-brand-300 bg-brand-50 hover:bg-brand-100 dark:bg-brand-950 dark:hover:bg-brand-900 rounded-lg border border-brand-200 dark:border-brand-800 transition">
+            <button onclick="loadSavedPlan('${plan.id}')" title="このプランを適用" class="px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 rounded-lg border border-slate-200 dark:border-slate-600 transition">
               読込
             </button>
             <button onclick="overwriteSavedPlan('${plan.id}')" title="現在のパラメータで上書き保存" class="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition">
