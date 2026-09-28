@@ -17,9 +17,10 @@ const DEFAULT_STATE = {
 
   // 退職金
   enableSeverance: true,
-  severanceAge: 60,
+  syncSeveranceWithRetire: true, // リタイア年齢から自動的に持ってくる
+  severanceAge: 50,
   severanceAmount: 1500, // 万円
-  severanceYears: 30, // 勤続年数
+  severanceYears: 28, // 勤続年数 (50歳リタイア時: 22歳就職想定で28年)
 
   // 暴落予想
   enableCrash: true,
@@ -609,7 +610,34 @@ function initApp() {
   bindSync('monthlyLivingCost', 'monthlyLivingCostNum', 'monthlyLivingCostVal', (v) => `${v}万円/月`, 'monthlyLivingCost');
 
   bindSimpleInput('enableSeverance', 'checked', 'enableSeverance');
-  bindSimpleInput('severanceAge', 'value', 'severanceAge', true);
+  
+  const chkSyncSev = document.getElementById('syncSeveranceWithRetire');
+  if (chkSyncSev) {
+    chkSyncSev.addEventListener('change', () => {
+      state.syncSeveranceWithRetire = chkSyncSev.checked;
+      if (state.syncSeveranceWithRetire) {
+        state.severanceAge = state.retireAge;
+      }
+      onStateChange();
+    });
+  }
+
+  const inputSevAge = document.getElementById('severanceAge');
+  if (inputSevAge) {
+    inputSevAge.addEventListener('input', () => {
+      const val = parseFloat(inputSevAge.value);
+      if (!isNaN(val)) {
+        state.severanceAge = val;
+        // 手動で編集されたら連動をOFFにする
+        if (state.syncSeveranceWithRetire && val !== state.retireAge) {
+          state.syncSeveranceWithRetire = false;
+          if (chkSyncSev) chkSyncSev.checked = false;
+        }
+        onStateChange();
+      }
+    });
+  }
+
   bindSimpleInput('severanceAmount', 'value', 'severanceAmount', true);
   bindSimpleInput('severanceYears', 'value', 'severanceYears', true);
 
@@ -721,6 +749,33 @@ function onStateChange() {
     document.getElementById('endAge').value = state.endAge;
     document.getElementById('endAgeNum').value = state.endAge;
     document.getElementById('endAgeVal').textContent = `${state.endAge}歳`;
+  }
+
+  // 退職金受取年齢をリタイア年齢から自動的に持ってくる
+  const sevAgeEl = document.getElementById('severanceAge');
+  const hintEl = document.getElementById('severanceSyncHint');
+  const chkSyncSev = document.getElementById('syncSeveranceWithRetire');
+
+  if (state.syncSeveranceWithRetire !== false) {
+    state.severanceAge = state.retireAge;
+    if (sevAgeEl) {
+      sevAgeEl.value = state.severanceAge;
+    }
+    if (chkSyncSev) {
+      chkSyncSev.checked = true;
+    }
+    if (hintEl) {
+      hintEl.textContent = `リタイア年齢 (${state.severanceAge}歳) で自動受給`;
+      hintEl.className = 'text-[10px] text-brand-600 dark:text-brand-400 font-medium';
+    }
+  } else {
+    if (chkSyncSev) {
+      chkSyncSev.checked = false;
+    }
+    if (hintEl) {
+      hintEl.textContent = `手動指定中 (${state.severanceAge}歳受給)`;
+      hintEl.className = 'text-[10px] text-slate-400';
+    }
   }
 
   const netSev = calculateSeveranceNet(state.severanceAmount, state.severanceYears);
@@ -1189,6 +1244,8 @@ function syncControlsToState() {
   document.getElementById('monthlyLivingCostVal').textContent = `${state.monthlyLivingCost}万円/月`;
 
   document.getElementById('enableSeverance').checked = state.enableSeverance;
+  const chkSync = document.getElementById('syncSeveranceWithRetire');
+  if (chkSync) chkSync.checked = (state.syncSeveranceWithRetire !== false);
   document.getElementById('severanceAge').value = state.severanceAge;
   document.getElementById('severanceAmount').value = state.severanceAmount;
   document.getElementById('severanceYears').value = state.severanceYears;
