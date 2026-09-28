@@ -423,40 +423,40 @@ function runSimulation(s) {
     let startAsset = currentTotalAsset;
     let investmentGain = 0;
 
-    if (!isDepleted && startAsset > 0) {
+    if (startAsset > 0) {
       investmentGain = startAsset * (effectiveReturnRate / 100);
-      currentTotalAsset = startAsset + investmentGain + netCashFlow;
+    }
 
-      if (!isRetired) {
-        cumulativePrincipal += annualIncome;
-        if (nisaPrincipal < s.nisaPriority) {
-          const nisaAdd = Math.min(annualIncome, s.nisaPriority - nisaPrincipal);
-          nisaPrincipal += nisaAdd;
-          taxablePrincipal += (annualIncome - nisaAdd);
-        } else {
-          taxablePrincipal += annualIncome;
-        }
+    currentTotalAsset = startAsset + investmentGain + netCashFlow;
+
+    if (!isRetired) {
+      cumulativePrincipal += Math.max(0, annualIncome);
+      if (nisaPrincipal < s.nisaPriority) {
+        const nisaAdd = Math.min(Math.max(0, annualIncome), s.nisaPriority - nisaPrincipal);
+        nisaPrincipal += nisaAdd;
+        taxablePrincipal += (Math.max(0, annualIncome) - nisaAdd);
       } else {
-        if (netCashFlow < 0) {
-          const withdrawAmount = Math.abs(netCashFlow);
-          if (taxablePrincipal > 0 && currentTotalAsset > cumulativePrincipal) {
-            const gainRatio = Math.max(0, (currentTotalAsset - cumulativePrincipal) / currentTotalAsset);
-            const taxableGainPortion = withdrawAmount * gainRatio * 0.5;
-            const tax = taxableGainPortion * 0.20315;
-            currentTotalAsset -= tax;
-          }
+        taxablePrincipal += Math.max(0, annualIncome);
+      }
+    } else {
+      if (netCashFlow < 0 && currentTotalAsset > 0) {
+        const withdrawAmount = Math.abs(netCashFlow);
+        if (taxablePrincipal > 0 && currentTotalAsset > cumulativePrincipal) {
+          const gainRatio = Math.max(0, (currentTotalAsset - cumulativePrincipal) / currentTotalAsset);
+          const taxableGainPortion = withdrawAmount * gainRatio * 0.5;
+          const tax = taxableGainPortion * 0.20315;
+          currentTotalAsset -= tax;
         }
       }
+    }
 
-      if (currentTotalAsset <= 0) {
-        currentTotalAsset = 0;
+    if (currentTotalAsset <= 0) {
+      currentTotalAsset = 0;
+      if (isRetired && !isDepleted) {
         isDepleted = true;
         depletedAge = age;
         eventNote.push('🛑 資産枯渇！');
       }
-    } else {
-      currentTotalAsset = 0;
-      investmentGain = 0;
     }
 
     if (!fireTargetReachedAge && currentTotalAsset >= targetFireAsset) {
@@ -554,14 +554,14 @@ function runMonteCarloSimulation(s, trials = 1000) {
       const z = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
       const randomReturn = meanReturn + volatility * z;
 
-      if (balance > 0) {
-        balance = balance * (1 + randomReturn) + (income - expense);
-        if (balance <= 0) {
-          balance = 0;
+      const gain = (balance > 0) ? balance * randomReturn : 0;
+      balance = balance + gain + (income - expense);
+
+      if (balance <= 0) {
+        balance = 0;
+        if (isRetired) {
           trialDepleted = true;
         }
-      } else {
-        balance = 0;
       }
 
       yearlyBalances[i].push(balance);
